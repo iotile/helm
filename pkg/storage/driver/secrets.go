@@ -104,6 +104,7 @@ func (secrets *Secrets) Get(key string) (*rspb.Release, error) {
 	}
 	// decode the base64 data string
 	r, err := decodeRelease(data)
+	r.Labels = filterSystemLabels(obj.ObjectMeta.Labels)
 	return r, errors.Wrapf(err, "get: failed to decode data %q", key)
 }
 
@@ -136,7 +137,7 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 			continue
 		}
 
-		rls.Labels = item.ObjectMeta.Labels
+		rls.Labels = filterSystemLabels(item.ObjectMeta.Labels)
 
 		if filter(rls) {
 			results = append(results, rls)
@@ -179,6 +180,7 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 			secrets.Log("query: failed to decode release: %s", err)
 			continue
 		}
+		rls.Labels = filterSystemLabels(item.ObjectMeta.Labels)
 		results = append(results, rls)
 	}
 	return results, nil
@@ -191,6 +193,7 @@ func (secrets *Secrets) Create(key string, rls *rspb.Release) error {
 	var lbs labels
 
 	lbs.init()
+	lbs.fromMap(rls.Labels)
 	lbs.set("createdAt", strconv.Itoa(int(time.Now().Unix())))
 
 	// create a new secret to hold the release
@@ -244,6 +247,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	var lbs labels
 
 	lbs.init()
+	lbs.fromMap(rls.Labels)
 	lbs.set("modifiedAt", strconv.Itoa(int(time.Now().Unix())))
 
 	// create new secret objects to hold the updated release
@@ -336,7 +340,6 @@ func (secrets *Secrets) Delete(key string) (rls *rspb.Release, err error) {
 //	"owner"          - owner of the secret, currently "helm".
 //	"name"           - name of the release.
 //	"continuedIn"    - if set, the encoded contents of the release continue in the secret this references.
-//
 func newSecretObjects(key string, rls *rspb.Release, lbs labels) ([]*v1.Secret, error) {
 	const owner = "helm"
 
@@ -351,6 +354,9 @@ func newSecretObjects(key string, rls *rspb.Release, lbs labels) ([]*v1.Secret, 
 	}
 
 	releaseBytes := []byte(s)
+
+	// apply custom labels
+	lbs.fromMap(rls.Labels)
 
 	// apply labels
 	lbs.set("name", rls.Name)
