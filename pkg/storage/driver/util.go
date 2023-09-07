@@ -30,7 +30,7 @@ var b64 = base64.StdEncoding
 
 var magicGzip = []byte{0x1f, 0x8b, 0x08}
 
-var systemLabels = []string{"name", "owner", "status", "version", "createdAt", "modifiedAt"}
+var systemLabels = []string{"name", "owner", "status", "version", "createdAt", "modifiedAt", "continuedIn"}
 
 // encodeRelease encodes a release returning a base64 encoded
 // gzipped string representation, or error.

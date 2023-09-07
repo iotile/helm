@@ -53,6 +53,10 @@ func releaseStubWithDescription(name string, vers int, namespace string, status 
 		Version:   vers,
 		Namespace: namespace,
 		Info:      &rspb.Info{Status: status, Description: string(description)},
+		Labels: map[string]string{
+			"key1": "val1",
+			"key2": "val2",
+		},
 	}
 }
 
