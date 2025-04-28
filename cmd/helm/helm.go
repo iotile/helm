@@ -22,6 +22,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
@@ -45,7 +46,8 @@ func init() {
 
 func debug(format string, v ...interface{}) {
 	if settings.Debug {
-		format = fmt.Sprintf("[debug] %s\n", format)
+		timeNow := time.Now().String()
+		format = fmt.Sprintf("%s [debug] %s\n", timeNow, format)
 		log.Output(2, fmt.Sprintf(format, v...))
 	}
 }
@@ -53,6 +55,11 @@ func debug(format string, v ...interface{}) {
 func warning(format string, v ...interface{}) {
 	format = fmt.Sprintf("WARNING: %s\n", format)
 	fmt.Fprintf(os.Stderr, format, v...)
+}
+
+// hookOutputWriter provides the writer for writing hook logs.
+func hookOutputWriter(_, _, _ string) io.Writer {
+	return log.Writer()
 }
 
 func main() {
@@ -78,6 +85,7 @@ func main() {
 		if helmDriver == "memory" {
 			loadReleasesInMemory(actionConfig)
 		}
+		actionConfig.SetHookOutputFunc(hookOutputWriter)
 	})
 
 	if err := cmd.Execute(); err != nil {

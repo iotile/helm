@@ -137,7 +137,7 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 			continue
 		}
 
-		rls.Labels = filterSystemLabels(item.ObjectMeta.Labels)
+		rls.Labels = item.ObjectMeta.Labels
 
 		if filter(rls) {
 			results = append(results, rls)
@@ -180,7 +180,7 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 			secrets.Log("query: failed to decode release: %s", err)
 			continue
 		}
-		rls.Labels = filterSystemLabels(item.ObjectMeta.Labels)
+		rls.Labels = item.ObjectMeta.Labels
 		results = append(results, rls)
 	}
 	return results, nil
@@ -194,7 +194,7 @@ func (secrets *Secrets) Create(key string, rls *rspb.Release) error {
 
 	lbs.init()
 	lbs.fromMap(rls.Labels)
-	lbs.set("createdAt", strconv.Itoa(int(time.Now().Unix())))
+	lbs.set("createdAt", fmt.Sprintf("%v", time.Now().Unix()))
 
 	// create a new secret to hold the release
 	secretsList, err := newSecretObjects(key, rls, lbs)
@@ -248,7 +248,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 
 	lbs.init()
 	lbs.fromMap(rls.Labels)
-	lbs.set("modifiedAt", strconv.Itoa(int(time.Now().Unix())))
+	lbs.set("modifiedAt", fmt.Sprintf("%v", time.Now().Unix()))
 
 	// create new secret objects to hold the updated release
 	secretsList, err := newSecretObjects(key, rls, lbs)
