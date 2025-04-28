@@ -133,7 +133,7 @@ func (mock *MockConfigMapsInterface) Get(_ context.Context, name string, _ metav
 	return object, nil
 }
 
-// List returns the a of ConfigMaps.
+// List returns all ConfigMaps.
 func (mock *MockConfigMapsInterface) List(_ context.Context, opts metav1.ListOptions) (*v1.ConfigMapList, error) {
 	var list v1.ConfigMapList
 
@@ -221,7 +221,7 @@ func (mock *MockSecretsInterface) Get(_ context.Context, name string, _ metav1.G
 	return object, nil
 }
 
-// List returns the a of Secret.
+// List returns all Secrets.
 func (mock *MockSecretsInterface) List(_ context.Context, opts metav1.ListOptions) (*v1.SecretList, error) {
 	var list v1.SecretList
 
@@ -268,7 +268,7 @@ func (mock *MockSecretsInterface) Delete(_ context.Context, name string, _ metav
 }
 
 // newTestFixtureSQL mocks the SQL database (for testing purposes)
-func newTestFixtureSQL(t *testing.T, releases ...*rspb.Release) (*SQL, sqlmock.Sqlmock) {
+func newTestFixtureSQL(t *testing.T, _ ...*rspb.Release) (*SQL, sqlmock.Sqlmock) {
 	sqlDB, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("error when opening stub database connection: %v", err)
@@ -277,7 +277,7 @@ func newTestFixtureSQL(t *testing.T, releases ...*rspb.Release) (*SQL, sqlmock.S
 	sqlxDB := sqlx.NewDb(sqlDB, "sqlmock")
 	return &SQL{
 		db:               sqlxDB,
-		Log:              func(a string, b ...interface{}) {},
+		Log:              func(_ string, _ ...interface{}) {},
 		namespace:        "default",
 		statementBuilder: sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}, mock
