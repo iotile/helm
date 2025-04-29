@@ -296,19 +296,30 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	}
 
 	// update secrets as needed
-	for _, obj := range secretsList {
-		_, ok = partialKeys[obj.ObjectMeta.Name]
-		if ok {
-			partialKeys[obj.ObjectMeta.Name] = false
-			if _, err := secrets.impl.Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+	for _, newObj := range secretsList {
+		_, exists := partialKeys[newObj.ObjectMeta.Name]
+		if exists {
+			partialKeys[newObj.ObjectMeta.Name] = false
+			// Load current object
+			current, err := secrets.impl.Get(context.Background(), newObj.ObjectMeta.Name, metav1.GetOptions{})
+			if err != nil {
+				return errors.Wrap(err, "update: failed to re-get existing secret")
+			}
+			// Fully replace fields
+			current.ObjectMeta.Labels = newObj.ObjectMeta.Labels
+			current.Data = newObj.Data
+			current.Type = newObj.Type
+
+			if _, err := secrets.impl.Update(context.Background(), current, metav1.UpdateOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to update")
 			}
 		} else {
-			if _, err := secrets.impl.Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
+			if _, err := secrets.impl.Create(context.Background(), newObj, metav1.CreateOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to create new partial")
 			}
 		}
 	}
+
 	// delete any extra partials
 	for key, shouldRemove := range partialKeys {
 		if shouldRemove {
