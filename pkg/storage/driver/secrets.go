@@ -71,7 +71,8 @@ func (secrets *Secrets) Name() string {
 // _FetchReleaseData is an internal function to fetch the release data
 // from the release secret and subsequent partial secrets.
 func (secrets *Secrets) _FetchReleaseData(first *v1.Secret) (string, error) {
-	data := string(first.Data["release"])
+	var allData []byte
+	allData = append(allData, first.Data["release"]...)
 	nextKey, ok := first.Labels["continuedIn"]
 	for ok {
 		obj, err := secrets.impl.Get(context.Background(), nextKey, metav1.GetOptions{})
@@ -81,10 +82,10 @@ func (secrets *Secrets) _FetchReleaseData(first *v1.Secret) (string, error) {
 			}
 			return "", errors.Wrapf(err, "failed to get partial %q", nextKey)
 		}
-		data = data + string(obj.Data["release"])
+		allData = append(allData, obj.Data["release"]...)
 		nextKey, ok = obj.Labels["continuedIn"]
 	}
-	return data, nil
+	return string(allData), nil
 }
 
 // Get fetches the release named by key. The corresponding release is returned
