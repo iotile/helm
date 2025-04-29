@@ -156,13 +156,13 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 		}
 		data, err := secrets._FetchReleaseDataFromMap(&item, secretMap)		
 		if err != nil {
-			secrets.Log("list: failed to fetch release data: %v: %s", item, err)
+			secrets.Log("list: failed to fetch release data: %s: %s", item.ObjectMeta.Name, err)
 			continue
 		}
 		// decode the base64 data string
 		rls, err := decodeRelease(data)
 		if err != nil {
-			secrets.Log("list: failed to decode release: %v: %s", item, err)
+			secrets.Log("list: failed to decode release: %s: %s", item.ObjectMeta.Name, err)
 			continue
 		}
 
