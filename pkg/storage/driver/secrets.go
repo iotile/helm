@@ -88,6 +88,24 @@ func (secrets *Secrets) _FetchReleaseData(first *v1.Secret) (string, error) {
 	return string(allData), nil
 }
 
+// _FetchReleaseDataFromMap is an internal function to fetch the release data
+// from the release secret and subsequent partial secrets, from an already-fetched List call.
+// This works around the fact that List calls can accept `namespace=""`, but Get calls can't.
+func (secrets *Secrets) _FetchReleaseDataFromMap(first *v1.Secret, secretMap map[string]*v1.Secret) (string, error) {
+	var allData []byte
+	allData = append(allData, first.Data["release"]...)
+	nextKey, ok := first.Labels["continuedIn"]
+	for ok {
+		obj, found := secretMap[nextKey]
+		if !found {
+			return "", errors.Wrapf(ErrReleaseNotFound, "partial release not found %q", nextKey)
+		}
+		allData = append(allData, obj.Data["release"]...)
+		nextKey, ok = obj.Labels["continuedIn"]
+	}
+	return string(allData), nil
+}
+
 // Get fetches the release named by key. The corresponding release is returned
 // or error if not found.
 func (secrets *Secrets) Get(key string) (*rspb.Release, error) {
@@ -122,11 +140,21 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 	}
 
 	var results []*rspb.Release
+	
+	// Build in-memory map of all fetched objects
+	secretMap := make(map[string]*v1.Secret)
+	for i, item := range list.Items {
+		secretMap[item.Name] = &list.Items[i] // Important: use pointer to the slice element
+	}
 
 	// iterate over the secrets object list
 	// and decode each release
 	for _, item := range list.Items {
-		data, err := secrets._FetchReleaseData(&item)
+		if item.Type != "helm.sh/release.v1" {
+			// skip partials or anything not a full release
+			continue
+		}
+		data, err := secrets._FetchReleaseDataFromMap(&item, secretMap)		
 		if err != nil {
 			secrets.Log("list: failed to fetch release data: %v: %s", item, err)
 			continue
@@ -169,9 +197,19 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 		return nil, ErrReleaseNotFound
 	}
 
+	// Build in-memory map of all fetched objects
+	secretMap := make(map[string]*v1.Secret)
+	for i, item := range list.Items {
+		secretMap[item.Name] = &list.Items[i] // Important: use pointer to the slice element
+	}
+
 	var results []*rspb.Release
 	for _, item := range list.Items {
-		data, err := secrets._FetchReleaseData(&item)
+		if item.Type != "helm.sh/release.v1" {
+			// skip partials or anything not a full release
+			continue
+		}
+		data, err := secrets._FetchReleaseDataFromMap(&item, secretMap)
 		if err != nil {
 			secrets.Log("query: failed to fetch release data: %s", err)
 			continue
