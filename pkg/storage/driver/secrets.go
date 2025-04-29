@@ -71,7 +71,8 @@ func (secrets *Secrets) Name() string {
 // _FetchReleaseData is an internal function to fetch the release data
 // from the release secret and subsequent partial secrets.
 func (secrets *Secrets) _FetchReleaseData(first *v1.Secret) (string, error) {
-	data := string(first.Data["release"])
+	var allData []byte
+	allData = append(allData, first.Data["release"]...)
 	nextKey, ok := first.Labels["continuedIn"]
 	for ok {
 		obj, err := secrets.impl.Get(context.Background(), nextKey, metav1.GetOptions{})
@@ -81,10 +82,28 @@ func (secrets *Secrets) _FetchReleaseData(first *v1.Secret) (string, error) {
 			}
 			return "", errors.Wrapf(err, "failed to get partial %q", nextKey)
 		}
-		data = data + string(obj.Data["release"])
+		allData = append(allData, obj.Data["release"]...)
 		nextKey, ok = obj.Labels["continuedIn"]
 	}
-	return data, nil
+	return string(allData), nil
+}
+
+// _FetchReleaseDataFromMap is an internal function to fetch the release data
+// from the release secret and subsequent partial secrets, from an already-fetched List call.
+// This works around the fact that List calls can accept `namespace=""`, but Get calls can't.
+func (secrets *Secrets) _FetchReleaseDataFromMap(first *v1.Secret, secretMap map[string]*v1.Secret) (string, error) {
+	var allData []byte
+	allData = append(allData, first.Data["release"]...)
+	nextKey, ok := first.Labels["continuedIn"]
+	for ok {
+		obj, found := secretMap[nextKey]
+		if !found {
+			return "", errors.Wrapf(ErrReleaseNotFound, "partial release not found %q", nextKey)
+		}
+		allData = append(allData, obj.Data["release"]...)
+		nextKey, ok = obj.Labels["continuedIn"]
+	}
+	return string(allData), nil
 }
 
 // Get fetches the release named by key. The corresponding release is returned
@@ -121,19 +140,29 @@ func (secrets *Secrets) List(filter func(*rspb.Release) bool) ([]*rspb.Release, 
 	}
 
 	var results []*rspb.Release
+	
+	// Build in-memory map of all fetched objects
+	secretMap := make(map[string]*v1.Secret)
+	for i, item := range list.Items {
+		secretMap[item.Name] = &list.Items[i] // Important: use pointer to the slice element
+	}
 
 	// iterate over the secrets object list
 	// and decode each release
 	for _, item := range list.Items {
-		data, err := secrets._FetchReleaseData(&item)
+		if item.Type != "helm.sh/release.v1" {
+			// skip partials or anything not a full release
+			continue
+		}
+		data, err := secrets._FetchReleaseDataFromMap(&item, secretMap)		
 		if err != nil {
-			secrets.Log("list: failed to fetch release data: %v: %s", item, err)
+			secrets.Log("list: failed to fetch release data: %s: %s", item.ObjectMeta.Name, err)
 			continue
 		}
 		// decode the base64 data string
 		rls, err := decodeRelease(data)
 		if err != nil {
-			secrets.Log("list: failed to decode release: %v: %s", item, err)
+			secrets.Log("list: failed to decode release: %s: %s", item.ObjectMeta.Name, err)
 			continue
 		}
 
@@ -168,9 +197,19 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 		return nil, ErrReleaseNotFound
 	}
 
+	// Build in-memory map of all fetched objects
+	secretMap := make(map[string]*v1.Secret)
+	for i, item := range list.Items {
+		secretMap[item.Name] = &list.Items[i] // Important: use pointer to the slice element
+	}
+
 	var results []*rspb.Release
 	for _, item := range list.Items {
-		data, err := secrets._FetchReleaseData(&item)
+		if item.Type != "helm.sh/release.v1" {
+			// skip partials or anything not a full release
+			continue
+		}
+		data, err := secrets._FetchReleaseDataFromMap(&item, secretMap)
 		if err != nil {
 			secrets.Log("query: failed to fetch release data: %s", err)
 			continue
@@ -257,19 +296,30 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	}
 
 	// update secrets as needed
-	for _, obj := range secretsList {
-		_, ok = partialKeys[obj.ObjectMeta.Name]
-		if ok {
-			partialKeys[obj.ObjectMeta.Name] = false
-			if _, err := secrets.impl.Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+	for _, newObj := range secretsList {
+		_, exists := partialKeys[newObj.ObjectMeta.Name]
+		if exists {
+			partialKeys[newObj.ObjectMeta.Name] = false
+			// Load current object
+			current, err := secrets.impl.Get(context.Background(), newObj.ObjectMeta.Name, metav1.GetOptions{})
+			if err != nil {
+				return errors.Wrap(err, "update: failed to re-get existing secret")
+			}
+			// Fully replace fields
+			current.ObjectMeta.Labels = newObj.ObjectMeta.Labels
+			current.Data = newObj.Data
+			current.Type = newObj.Type
+
+			if _, err := secrets.impl.Update(context.Background(), current, metav1.UpdateOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to update")
 			}
 		} else {
-			if _, err := secrets.impl.Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
+			if _, err := secrets.impl.Create(context.Background(), newObj, metav1.CreateOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to create new partial")
 			}
 		}
 	}
+
 	// delete any extra partials
 	for key, shouldRemove := range partialKeys {
 		if shouldRemove {
