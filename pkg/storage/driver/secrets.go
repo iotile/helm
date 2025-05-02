@@ -406,6 +406,11 @@ func (secrets *Secrets) Delete(key string) (rls *rspb.Release, err error) {
 func newSecretObjects(key string, rls *rspb.Release, lbs labels) ([]*v1.Secret, error) {
 	const owner = "helm"
 
+	// Strip files from release to save on size
+	if rls.Chart != nil {
+		rls.Chart.Files = nil
+	}
+
 	// encode the release
 	s, err := encodeRelease(rls)
 	if err != nil {
@@ -426,6 +431,7 @@ func newSecretObjects(key string, rls *rspb.Release, lbs labels) ([]*v1.Secret, 
 	lbs.set("owner", owner)
 	lbs.set("status", rls.Info.Status.String())
 	lbs.set("version", strconv.Itoa(rls.Version))
+	delete(lbs, "continuedIn")  // Always remove preemptively continuedIn
 
 	// Helm 3 introduced setting the 'Type' field
 	// in the Kubernetes storage object.
@@ -506,6 +512,8 @@ func newSecretObjects(key string, rls *rspb.Release, lbs labels) ([]*v1.Secret, 
 			currentChunkIndex++                                                        // increment current chunk
 			currentChunkKey = makePartialKey(rls.Name, rls.Version, currentChunkIndex) // make key for the next chunk
 			currentSecret.ObjectMeta.Labels["continuedIn"] = currentChunkKey           // store reference to it
+		} else {
+			delete(currentSecret.ObjectMeta.Labels, "continuedIn")
 		}
 		secrets = append(secrets, currentSecret)
 	}
