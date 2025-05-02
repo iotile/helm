@@ -228,12 +228,15 @@ func (secrets *Secrets) Query(labels map[string]string) ([]*rspb.Release, error)
 // Create creates a new Secret holding the release. If the
 // Secret already exists, ErrReleaseExists is returned.
 func (secrets *Secrets) Create(key string, rls *rspb.Release) error {
+	secrets.Log("create: creating %s for version %d", key, rls.Version)
 	// set labels for secrets object meta data
 	var lbs labels
 
 	lbs.init()
 	lbs.fromMap(rls.Labels)
 	lbs.set("createdAt", fmt.Sprintf("%v", time.Now().Unix()))
+		
+	secrets.Log("create: computed new labels %s", lbs)
 
 	// create a new secret to hold the release
 	secretsList, err := newSecretObjects(key, rls, lbs)
@@ -242,6 +245,7 @@ func (secrets *Secrets) Create(key string, rls *rspb.Release) error {
 	}
 	// push the secret objects out into the kubiverse
 	for _, obj := range secretsList {
+		secrets.Log("create: creating new object %s", obj.ObjectMeta.Name)
 		if _, err := secrets.impl.Create(context.Background(), obj, metav1.CreateOptions{}); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				return errors.Wrapf(ErrReleaseExists, "create: key %s already exists", obj.ObjectMeta.Name)
@@ -254,7 +258,10 @@ func (secrets *Secrets) Create(key string, rls *rspb.Release) error {
 
 // Update updates the Secret holding the release. If not found
 // the Secret is created to hold the release.
+// This function is called twice, once with the current version to mark it as superseded
+// and once with the new version 
 func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
+	secrets.Log("update: updating %s for version %d", key, rls.Version)
 	// get current release secret
 	obj, err := secrets.impl.Get(context.Background(), key, metav1.GetOptions{})
 	if err != nil {
@@ -271,6 +278,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	// don't use _FetchReleaseData as we only need the keys, not the data
 	nextKey, ok := obj.Labels["continuedIn"]
 	for ok {
+		secrets.Log("update: fetching %s", nextKey)
 		partialKeys[nextKey] = true
 		obj, err := secrets.impl.Get(context.Background(), nextKey, metav1.GetOptions{})
 		if err != nil {
@@ -288,6 +296,8 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	lbs.init()
 	lbs.fromMap(rls.Labels)
 	lbs.set("modifiedAt", fmt.Sprintf("%v", time.Now().Unix()))
+	
+	secrets.Log("update: computed new labels %s", lbs)
 
 	// create new secret objects to hold the updated release
 	secretsList, err := newSecretObjects(key, rls, lbs)
@@ -299,6 +309,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	for _, newObj := range secretsList {
 		_, exists := partialKeys[newObj.ObjectMeta.Name]
 		if exists {
+			secrets.Log("update: secret %s exists, updating", newObj.ObjectMeta.Name)
 			partialKeys[newObj.ObjectMeta.Name] = false
 			// Load current object
 			current, err := secrets.impl.Get(context.Background(), newObj.ObjectMeta.Name, metav1.GetOptions{})
@@ -314,6 +325,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 				return errors.Wrap(err, "update: failed to update")
 			}
 		} else {
+			secrets.Log("update: secret %s is new, creating", newObj.ObjectMeta.Name)
 			if _, err := secrets.impl.Create(context.Background(), newObj, metav1.CreateOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to create new partial")
 			}
@@ -323,6 +335,7 @@ func (secrets *Secrets) Update(key string, rls *rspb.Release) error {
 	// delete any extra partials
 	for key, shouldRemove := range partialKeys {
 		if shouldRemove {
+			secrets.Log("update: secret %s is no longer needed, removing", key)
 			if err := secrets.impl.Delete(context.Background(), key, metav1.DeleteOptions{}); err != nil {
 				return errors.Wrap(err, "update: failed to delete extra partial")
 			}
